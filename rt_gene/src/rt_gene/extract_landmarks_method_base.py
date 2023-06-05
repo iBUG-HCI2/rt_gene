@@ -1,26 +1,27 @@
 # Licensed under Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode)
 
-import time
-
 import cv2
 import numpy as np
 import torch
 import torchvision.transforms as transforms
-from rt_gene.SFD.sfd_detector import SFDDetector
-# noinspection PyUnresolvedReferences
-from rt_gene import gaze_tools as gaze_tools
-from rt_gene.ThreeDDFA.inference import crop_img, predict_68pts, parse_roi_box_from_bbox, parse_roi_box_from_landmark
-from rt_gene.tracker_generic import TrackedSubject
 from torch.backends import cudnn as cudnn
 from tqdm import tqdm
 
+from rt_gene.download_tools import download_external_landmark_models
+
+# noinspection PyUnresolvedReferences
+from rt_gene import gaze_tools as gaze_tools
+from rt_gene.SFD.sfd_detector import SFDDetector
 from rt_gene.ThreeDDFA.ddfa import ToTensorGjz, NormalizeGjz
+from rt_gene.ThreeDDFA.inference import crop_img, predict_68pts, parse_roi_box_from_bbox, parse_roi_box_from_landmark
+from rt_gene.tracker_generic import TrackedSubject
 
 facial_landmark_transform = transforms.Compose([ToTensorGjz(), NormalizeGjz(mean=127.5, std=128)])
 
 
 class LandmarkMethodBase(object):
     def __init__(self, device_id_facedetection, checkpoint_path_face=None, checkpoint_path_landmark=None, model_points_file=None):
+        download_external_landmark_models()
         self.model_size_rescale = 16.0
         self.head_pitch = 0.0
         self.interpupillary_distance = 0.058
@@ -28,13 +29,13 @@ class LandmarkMethodBase(object):
 
         tqdm.write("Using device {} for face detection.".format(device_id_facedetection))
 
+        self.device = device_id_facedetection
         self.face_net = SFDDetector(device=device_id_facedetection, path_to_detector=checkpoint_path_face)
         self.facial_landmark_nn = self.load_face_landmark_model(checkpoint_path_landmark)
 
         self.model_points = self.get_full_model_points(model_points_file)
 
-    @staticmethod
-    def load_face_landmark_model(checkpoint_fp=None):
+    def load_face_landmark_model(self, checkpoint_fp=None):
         import rt_gene.ThreeDDFA.mobilenet_v1 as mobilenet_v1
         if checkpoint_fp is None:
             import rospkg
@@ -50,7 +51,7 @@ class LandmarkMethodBase(object):
             model_dict[k.replace('module.', '')] = checkpoint[k]
         model.load_state_dict(model_dict)
         cudnn.benchmark = True
-        model = model.cuda()
+        model = model.to(self.device)
         model.eval()
         return model
 
@@ -74,7 +75,6 @@ class LandmarkMethodBase(object):
 
     def get_face_bb(self, image):
         faceboxes = []
-        start_time = time.time()
         fraction = 4.0
         image = cv2.resize(image, (0, 0), fx=1.0 / fraction, fy=1.0 / fraction)
         detections = self.face_net.detect_from_image(image)
@@ -84,7 +84,7 @@ class LandmarkMethodBase(object):
             box = result[:4]
             confidence = result[4]
 
-            if gaze_tools.box_in_image(box, image) and confidence > 0.8:
+            if gaze_tools.box_in_image(box, image) and confidence > 0.6:
                 box = [x * fraction for x in box]  # scale back up
                 diff_height_width = (box[3] - box[1]) - (box[2] - box[0])
                 offset_y = int(abs(diff_height_width / 2))
@@ -109,20 +109,12 @@ class LandmarkMethodBase(object):
         cv2.line(output_image, (int(center_x), int(center_y)), (int(endpoint_x), int(endpoint_y)), (0, 0, 255), 3)
         return output_image
 
-    @staticmethod
-    def transform_landmarks(landmarks, box):
-        eye_indices = np.array([36, 39, 42, 45])
-        transformed_landmarks = landmarks[eye_indices]
-        transformed_landmarks[:, 0] -= box[0]
-        transformed_landmarks[:, 1] -= box[1]
-        return transformed_landmarks
-
     def ddfa_forward_pass(self, color_img, roi_box_list):
         img_step = [crop_img(color_img, roi_box) for roi_box in roi_box_list]
         img_step = [cv2.resize(img, dsize=(120, 120), interpolation=cv2.INTER_LINEAR) for img in img_step]
         _input = torch.cat([facial_landmark_transform(img).unsqueeze(0) for img in img_step], 0)
         with torch.no_grad():
-            _input = _input.cuda()
+            _input = _input.to(self.device)
             param = self.facial_landmark_nn(_input).cpu().numpy().astype(np.float32)
 
         return [predict_68pts(p.flatten(), roi_box) for p, roi_box in zip(param, roi_box_list)]
@@ -137,6 +129,5 @@ class LandmarkMethodBase(object):
 
         for pts68, face_image, facebox in zip(pts68_list, face_images, faceboxes):
             np_landmarks = np.array((pts68[0], pts68[1])).T
-            transformed_landmarks = self.transform_landmarks(np_landmarks, facebox)
-            subjects.append(TrackedSubject(np.array(facebox), face_image, transformed_landmarks, np_landmarks))
+            subjects.append(TrackedSubject(np.array(facebox), face_image, np_landmarks))
         return subjects
