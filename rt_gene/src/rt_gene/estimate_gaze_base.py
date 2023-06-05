@@ -5,7 +5,7 @@ import os
 import cv2
 import numpy as np
 import tensorflow as tf
-from rt_gene.gaze_tools import get_endpoint
+from .gaze_tools import get_endpoint
 from tqdm import tqdm
 
 
