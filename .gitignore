@@ -18,7 +18,27 @@ rt_gene/model_nets/all_subjects_mpii_prl_utmv_0_02.h5
 rt_gene/model_nets/all_subjects_mpii_prl_utmv_1_02.h5
 rt_gene/model_nets/all_subjects_mpii_prl_utmv_2_02.h5
 rt_gene/model_nets/all_subjects_mpii_prl_utmv_3_02.h5
-rt_gene/samples/out
+rt_gene/model_nets/blink_model_1.h5
+rt_gene/model_nets/blink_model_2.h5
+rt_gene/model_nets/rt-bene_mobilenetv2_fold1_best.h5
+rt_gene/model_nets/rt-bene_mobilenetv2_fold2_best.h5
+rt_gene/model_nets/rt-bene_mobilenetv2_fold3_best.h5
+rt_gene/model_nets/Model_allsubjects1_pytorch.model
+rt_gene/model_nets/Model_allsubjects2_pytorch.model
+rt_gene/model_nets/Model_allsubjects3_pytorch.model
+rt_gene/model_nets/Model_allsubjects4_pytorch.model
+rt_gene/model_nets/Model_prl_mpii_allsubjects1_pytorch.model
+rt_gene/model_nets/Model_prl_mpii_allsubjects2_pytorch.model
+rt_gene/model_nets/blink_model_pytorch_resnet18_allsubjects1.model
+rt_gene/model_nets/blink_model_pytorch_resnet18_allsubjects2.model
+rt_gene/model_nets/gaze_model_pytorch_vgg16_prl_mpii_allsubjects1.model
+rt_gene/model_nets/gaze_model_pytorch_vgg16_prl_mpii_allsubjects2.model
+rt_gene/model_nets/gaze_model_pytorch_vgg16_prl_mpii_allsubjects3.model
+rt_gene/model_nets/gaze_model_pytorch_vgg16_prl_mpii_allsubjects4.model
+rt_gene/model_nets/blink_model_pytorch_vgg16_allsubjects1.model
+rt_gene/model_nets/blink_model_pytorch_vgg16_allsubjects2.model
+rt_gene/model_nets/blink_model_pytorch_vgg16_allsubjects3.model
+rt_gene_standalone/samples_gaze/out
 
 *~
 # Byte-compiled / optimized / DLL files
