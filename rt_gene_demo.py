@@ -4,11 +4,12 @@ import math
 import time
 import torch
 import numpy as np
-from typing import Tuple
 from argparse import ArgumentParser
+from typing import Tuple, List, Union
 
 from rt_gene.src import __file__ as rt_gene_loc
-from rt_gene.src.rt_gene.estimate_gaze_base import GazeEstimatorBase
+from rt_gene.src.rt_gene.estimate_gaze_pytorch import GazeEstimator as GazeEstimatorPT
+from rt_gene.src.rt_gene.estimate_gaze_tensorflow import GazeEstimator as GazeEstimatorTF
 
 from ibug.face_alignment import FANPredictor
 from ibug.face_detection import S3FDPredictor
@@ -16,7 +17,10 @@ from ibug.face_alignment.utils import plot_landmarks
 from ibug.face_pose_augmentation import TDDFAPredictor
 
 
-def crop_eye_patches(frame: np.ndarray, landmarks: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+def crop_eye_patches(frame: np.ndarray, landmarks: np.ndarray, use_tf: bool
+                     ) -> Tuple[List[Union[np.ndarray, torch.Tensor]], List[Union[np.ndarray, torch.Tensor]]]:
+    left_eye_patches = []
+    right_eye_patches = []
     if landmarks.shape[0] > 0:
         left_eye_widths = abs(landmarks[:, 39, 0] - landmarks[:, 36, 0])
         left_eye_centres = (landmarks[:, 39] + landmarks[:, 36]) / 2.0
@@ -38,8 +42,6 @@ def crop_eye_patches(frame: np.ndarray, landmarks: np.ndarray) -> Tuple[np.ndarr
         right_eye_boxes = right_eye_boxes.round().astype(int)
         right_eye_boxes[:, 1, :] += 1
 
-        left_eye_patches = []
-        right_eye_patches = []
         left_border = min(left_eye_boxes[..., 0].min(), right_eye_boxes[..., 0].min())
         top_border = min(left_eye_boxes[..., 1].min(), right_eye_boxes[..., 1].min())
         right_border = max(left_eye_boxes[..., 0].max(), right_eye_boxes[..., 0].max())
@@ -53,17 +55,23 @@ def crop_eye_patches(frame: np.ndarray, landmarks: np.ndarray) -> Tuple[np.ndarr
         left_eye_boxes[..., 1] += paddings[1]
         right_eye_boxes[..., 0] += paddings[0]
         right_eye_boxes[..., 1] += paddings[1]
+        if not use_tf:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
         for left_box, right_box in zip(left_eye_boxes, right_eye_boxes):
-            left_eye_patches.append(GazeEstimatorBase.input_from_image(cv2.resize(
-                frame[left_box[0, 1]: left_box[1, 1], left_box[0, 0]: left_box[1, 0]],
-                (60, 36), interpolation=cv2.INTER_CUBIC)))
-            right_eye_patches.append(GazeEstimatorBase.input_from_image(cv2.resize(
-                frame[right_box[0, 1]: right_box[1, 1], right_box[0, 0]: right_box[1, 0]],
-                (60, 36), interpolation=cv2.INTER_CUBIC)))
+            if use_tf:
+                left_eye_patches.append(GazeEstimatorTF.input_from_image(cv2.resize(
+                    frame[left_box[0, 1]: left_box[1, 1], left_box[0, 0]: left_box[1, 0]],
+                    (60, 36), interpolation=cv2.INTER_CUBIC)))
+                right_eye_patches.append(GazeEstimatorTF.input_from_image(cv2.resize(
+                    frame[right_box[0, 1]: right_box[1, 1], right_box[0, 0]: right_box[1, 0]],
+                    (60, 36), interpolation=cv2.INTER_CUBIC)))
+            else:
+                left_eye_patches.append(GazeEstimatorPT.input_from_image(
+                    frame[left_box[0, 1]: left_box[1, 1], left_box[0, 0]: left_box[1, 0]]))
+                right_eye_patches.append(GazeEstimatorPT.input_from_image(
+                    frame[right_box[0, 1]: right_box[1, 1], right_box[0, 0]: right_box[1, 0]]))
 
-        return np.array(left_eye_patches), np.array(right_eye_patches)
-    else:
-        return np.empty(shape=(0, 36, 60, 3), dtype=np.float32), np.empty(shape=(0, 36, 60, 3), dtype=np.float32)
+    return left_eye_patches, right_eye_patches
 
 
 def main() -> None:
@@ -97,9 +105,16 @@ def main() -> None:
                         help='Alternative number of landmarks to detect')
 
     rt_gene_model_dir = os.path.realpath(os.path.join(os.path.dirname(rt_gene_loc), '..', 'model_nets'))
-    rt_gene_default_model_path = os.path.join(rt_gene_model_dir, 'Model_allsubjects1.h5')
-    parser.add_argument('--gaze-detection-model', '-gm', default=rt_gene_default_model_path,
-                        help=f'Model file to be loaded for gaze detection (default="{rt_gene_default_model_path}")')
+    rt_gene_default_h5_path = os.path.join(rt_gene_model_dir, 'Model_allsubjects1.h5')
+    rt_gene_default_pth_path = os.path.join(rt_gene_model_dir, 'gaze_model_pytorch_vgg16_prl_mpii_allsubjects1.model')
+    parser.add_argument('--gaze-detection-use-tensorflow', '-gt', default=False, action='store_true',
+                        help='Use the Tensorflow model for gaze detection')
+    parser.add_argument('--gaze-detection-h5', '-gh', default=rt_gene_default_h5_path,
+                        help=f'Tensorflow model file to be loaded for gaze detection ' +
+                             f'(default="{rt_gene_default_h5_path}")')
+    parser.add_argument('--gaze-detection-pth', '-gp', default=rt_gene_default_pth_path,
+                        help=f'Pytorch model file to be loaded for gaze detection ' +
+                             f'(default="{rt_gene_default_pth_path}")')
     args = parser.parse_args()
 
     # Set benchmark mode flag for CUDNN
@@ -130,9 +145,14 @@ def main() -> None:
         print('3DDFA initialised.')
 
         # Create the gaze estimator
-        gaze_estimator = GazeEstimatorBase(device_id_gaze=args.device.lower().replace('cuda', 'gpu'),
-                                           model_files=args.gaze_detection_model)
-        print('Gaze estimator created.')
+        if args.gaze_detection_use_tensorflow:
+            gaze_estimator = GazeEstimatorTF(device_id_gaze=args.device.lower().replace('cuda', 'gpu'),
+                                             model_files=[args.gaze_detection_h5])
+            print('Gaze estimator created using the Tensorflow model.')
+        else:
+            gaze_estimator = GazeEstimatorPT(device_id_gaze=args.device,
+                                             model_files=[args.gaze_detection_pth])
+            print('Gaze estimator created using the Pytorch model.')
 
         # Open the input video
         using_webcam = not os.path.exists(args.input)
@@ -194,14 +214,14 @@ def main() -> None:
 
                 # Gaze detection
                 start_time = current_time
-                left_eye_patches, right_eye_patches = crop_eye_patches(frame, landmarks[validities])
-                if left_eye_patches.shape[0] > 0 and (
-                        left_eye_patches.shape[0] == right_eye_patches.shape[0] == len(tddfa_results)):
-                    head_poses = np.array([[tr['face_pose']['pitch'], tr['face_pose']['yaw']]
-                                           for tr in tddfa_results])
+                left_eye_patches, right_eye_patches = crop_eye_patches(frame, landmarks[validities],
+                                                                       args.gaze_detection_use_tensorflow)
+                if len(left_eye_patches) > 0 and (
+                        len(left_eye_patches) == len(right_eye_patches) == len(tddfa_results)):
+                    head_poses = [[tr['face_pose']['pitch'], tr['face_pose']['yaw']] for tr in tddfa_results]
                     eye_gazes = gaze_estimator.estimate_gaze_twoeyes(left_eye_patches, right_eye_patches, head_poses)
                 else:
-                    head_poses = np.empty(shape=(0, 2), dtype=np.float32)
+                    head_poses = []
                     eye_gazes = np.empty(shape=(0, 2), dtype=np.float32)
                 current_time = time.time()
                 elapsed_time4 = current_time - start_time

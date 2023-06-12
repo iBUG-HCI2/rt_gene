@@ -223,8 +223,8 @@ class GazeEstimationModelVGG(GazeEstimationAbstractModel):
 
     def __init__(self, num_out=2):
         super(GazeEstimationModelVGG, self).__init__()
-        _left_model = models.vgg16(pretrained=True)
-        _right_model = models.vgg16(pretrained=True)
+        _left_model = models.vgg16(weights=models.VGG16_Weights.DEFAULT)
+        _right_model = models.vgg16(weights=models.VGG16_Weights.DEFAULT)
 
         # remove the last ConvBRelu layer
         _left_modules = [module for module in _left_model.features]

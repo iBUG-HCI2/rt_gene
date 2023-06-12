@@ -4,8 +4,8 @@ import numpy as np
 import tensorflow as tf
 from tqdm import tqdm
 
-from rt_gene.estimate_gaze_base import GazeEstimatorBase
-from rt_gene.download_tools import download_gaze_tensorflow_models
+from .estimate_gaze_base import GazeEstimatorBase
+from .download_tools import download_gaze_tensorflow_models
 
 
 class GazeEstimator(GazeEstimatorBase):
@@ -66,7 +66,8 @@ class GazeEstimator(GazeEstimatorBase):
             mean_prediction[:, 1] += self._gaze_offset
             return mean_prediction  # returns [subject : [gaze_pose]]
 
-    def input_from_image(self, cv_image):
+    @staticmethod
+    def input_from_image(cv_image):
         """This method converts an eye_img_msg provided by the landmark estimator, and converts it to a format
         suitable for the gaze network."""
         currimg = cv_image.reshape(36, 60, 3, order='F')
